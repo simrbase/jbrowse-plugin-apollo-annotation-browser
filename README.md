@@ -2,6 +2,8 @@
 
 A JBrowse 2 plugin that adds an **Annotation Browser** drawer widget to [Apollo](https://github.com/GMOD/Apollo3). It shows all user-submitted annotations across an assembly in a searchable, sortable table — including who created and last modified each annotation, when, and where on the genome.
 
+![Annotation Browser](annotation_browser.png)
+
 ## Features
 
 - **Browse all annotations** for any Apollo assembly in a compact drawer table
