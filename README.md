@@ -64,13 +64,6 @@ Add the plugin to your `config.json`:
 }
 ```
 
-Or use the JBrowse CLI:
-
-```bash
-jbrowse add-plugin \
-  --name ApolloAnnotationBrowser \
-  --url jbrowse-plugin-apollo-annotation-browser.umd.development.js
-```
 
 ## Development
 
