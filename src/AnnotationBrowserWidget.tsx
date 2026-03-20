@@ -2,14 +2,19 @@ import { getRoot } from 'mobx-state-tree'
 import { observer } from 'mobx-react'
 import Button from '@mui/material/Button'
 import CircularProgress from '@mui/material/CircularProgress'
+import IconButton from '@mui/material/IconButton'
 import Typography from '@mui/material/Typography'
+import ChevronRightIcon from '@mui/icons-material/ChevronRight'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import {
   DataGrid,
   type GridColDef,
   type GridRenderCellParams,
+  type GridRenderEditCellParams,
+  useGridApiContext,
   GridToolbar,
 } from '@mui/x-data-grid'
-import React, { useCallback } from 'react'
+import React, { useCallback, useMemo, useState } from 'react'
 
 import { useAnnotations } from './useAnnotations'
 import type { AnnotationRow } from './types'
@@ -31,6 +36,21 @@ interface ApolloRootModel {
 
 interface Props {
   model: Instance<typeof stateModel>
+}
+
+// Edit cell that preserves the row's indentation during inline editing
+function IndentedEditCell({ depth, params }: { depth: number; params: GridRenderEditCellParams<AnnotationRow> }) {
+  const apiRef = useGridApiContext()
+  return (
+    <input
+      autoFocus
+      style={{ paddingLeft: depth * 24, width: '100%', border: 'none', outline: 'none', font: 'inherit', background: 'transparent' }}
+      value={String(params.value ?? '')}
+      onChange={(e) => {
+        void apiRef.current.setEditCellValue({ id: params.id, field: params.field, value: e.target.value })
+      }}
+    />
+  )
 }
 
 export const AnnotationBrowserWidget = observer(function AnnotationBrowserWidget({
@@ -56,10 +76,27 @@ export const AnnotationBrowserWidget = observer(function AnnotationBrowserWidget
     [apolloInternetAccount],
   )
 
-  const { rows, loading, error, hasMore, loadAll } = useAnnotations(
+  const { rows: allRows, loading, error, hasMore, loadAll, updateRow } = useAnnotations(
     baseURL,
     getFetcher,
     assembly,
+  )
+
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+
+  function toggleExpand(id: string) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  // Filter: show top-level rows always; show child rows only if parent is expanded
+  const rows = useMemo(
+    () => allRows.filter((r) => r.depth === 0 || expandedIds.has(r.parentId ?? '')),
+    [allRows, expandedIds],
   )
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -71,6 +108,43 @@ export const AnnotationBrowserWidget = observer(function AnnotationBrowserWidget
       session.session?.views ?? session.views ?? []
     const linearView = views.find((v) => v.type === 'LinearGenomeView')
     linearView?.navToLocString?.(`${row.refSeqName}:${row.min + 1}..${row.max}`)
+  }
+
+  // Save an edited name back to Apollo via FeatureAttributeChange.
+  // Uses attributes stored at load time as oldAttributes (Option A).
+  // Option B — re-fetching the feature fresh before submitting — would be
+  // safer in multi-user environments where another curator may have changed
+  // attributes between when this table loaded and when the edit is committed.
+  async function processRowUpdate(newRow: AnnotationRow, oldRow: AnnotationRow): Promise<AnnotationRow> {
+    if (newRow.name === oldRow.name) return newRow
+
+    const oldAttributes = { ...oldRow.attributes }
+    const newAttributes = { ...oldRow.attributes, Name: [newRow.name] }
+
+    const url = new URL('changes', baseURL).toString()
+    const fetcher = getFetcher({ locationType: 'UriLocation', uri: url })
+    const res = await fetcher(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        typeName: 'FeatureAttributeChange',
+        assembly: oldRow.assemblyId,
+        changedIds: [oldRow.id],
+        featureId: oldRow.id,
+        oldAttributes,
+        newAttributes,
+      }),
+    })
+
+    if (!res.ok) {
+      const msg = await res.text()
+      throw new Error(`Failed to save name: ${msg}`)
+    }
+
+    // Patch allRows so the edit survives expand/collapse recomputes
+    const updated = { ...newRow, attributes: newAttributes }
+    updateRow(newRow.id, { name: newRow.name, attributes: newAttributes })
+    return updated
   }
 
   const columns: GridColDef[] = [
@@ -86,9 +160,40 @@ export const AnnotationBrowserWidget = observer(function AnnotationBrowserWidget
         </Button>
       ),
     },
-    { field: 'name', headerName: 'Name', width: 160, flex: 1 },
+    {
+      field: 'expand',
+      headerName: '',
+      width: 36,
+      sortable: false,
+      filterable: false,
+      renderCell: (params: GridRenderCellParams<AnnotationRow>) => {
+        const row = params.row
+        if (!row.hasChildren) return null
+        const expanded = expandedIds.has(row.id)
+        return (
+          <IconButton size="small" onClick={() => toggleExpand(row.id)}>
+            {expanded ? <ExpandMoreIcon fontSize="small" /> : <ChevronRightIcon fontSize="small" />}
+          </IconButton>
+        )
+      },
+    },
+    {
+      field: 'name',
+      headerName: 'Name',
+      width: 160,
+      flex: 1,
+      editable: true,
+      renderCell: (params: GridRenderCellParams<AnnotationRow>) => (
+        <span style={{ paddingLeft: params.row.depth * 24 }}>
+          {params.row.name}
+        </span>
+      ),
+      // Preserve indentation while editing
+      renderEditCell: (params: GridRenderEditCellParams<AnnotationRow>) => (
+        <IndentedEditCell params={params} depth={params.row.depth} />
+      ),
+    },
     { field: 'type', headerName: 'Type', width: 110 },
-
     {
       field: 'location',
       headerName: 'Location',
@@ -155,11 +260,24 @@ export const AnnotationBrowserWidget = observer(function AnnotationBrowserWidget
             pageSizeOptions={[25, 50, 100]}
             initialState={{
               pagination: { paginationModel: { pageSize: 25 } },
-              columns: { columnVisibilityModel: { createdAt: false, type: false } },
+              columns: { columnVisibilityModel: { createdAt: false } },
             }}
             density="compact"
             style={{ flex: 1 }}
             getRowId={(row: AnnotationRow) => row.id}
+            getRowClassName={(params) =>
+              (params.row as AnnotationRow).depth > 0 ? 'child-row' : ''
+            }
+            sx={{
+              '& .child-row': { backgroundColor: 'action.hover' },
+            }}
+            processRowUpdate={processRowUpdate}
+            onProcessRowUpdateError={(error: unknown) => {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const session = getRoot<any>(model)
+              // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+              session.notify(String(error), 'error')
+            }}
           />
         </>
       )}

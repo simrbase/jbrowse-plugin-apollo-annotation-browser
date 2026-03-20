@@ -31,6 +31,7 @@ export interface UseAnnotationsResult {
   error: string | null
   hasMore: boolean
   loadAll: () => void
+  updateRow: (id: string, updates: Partial<AnnotationRow>) => void
 }
 
 export function useAnnotations(
@@ -132,23 +133,60 @@ export function useAnnotations(
           features.push(...data)
         }
 
-        // 7. Build rows
+        // 7. Build rows (genes + mRNA children)
+        function featureName(f: FeatureRecord): string {
+          return (
+            f.attributes?.['Name']?.[0] ??
+            f.attributes?.['name']?.[0] ??
+            ''
+          )
+        }
+
+        function buildChildRows(
+          parent: FeatureRecord,
+          parentId: string,
+          creation: { user: string; createdAt: string },
+          modified: { user: string; modifiedAt: string },
+          asmName: string,
+        ): AnnotationRow[] {
+          if (!parent.children) return []
+          return Object.values(parent.children).map((child) => ({
+            id: child._id,
+            parentId,
+            depth: 1,
+            name: featureName(child),
+            type: child.type,
+            assembly: asmName,
+            assemblyId: assemblyId ?? '',
+            refSeqName: refSeqMap.get(child.refSeq) ?? child.refSeq,
+            refSeqId: child.refSeq,
+            min: child.min,
+            max: child.max,
+            strand: child.strand,
+            createdBy: creation.user,
+            createdAt: creation.createdAt,
+            modifiedBy: modified.user,
+            modifiedAt: modified.modifiedAt,
+            hasChildren: false,
+            attributes: child.attributes ?? {},
+          }))
+        }
+
         const result: AnnotationRow[] = []
+        const asmName = assemblyName ?? assemblyId ?? ''
         for (const f of features) {
           const fid = f._id
           const creation = creationMap.get(fid) ?? { user: 'unknown', createdAt: '' }
           const modified = modifiedMap.get(fid) ?? { user: creation.user, modifiedAt: creation.createdAt }
-          const name =
-            f.attributes?.['Name']?.[0] ??
-            f.attributes?.['name']?.[0] ??
-            f.attributes?.['ID']?.[0] ??
-            fid
+          const childCount = f.children ? Object.keys(f.children).length : 0
 
           result.push({
             id: fid,
-            name,
+            parentId: undefined,
+            depth: 0,
+            name: featureName(f),
             type: f.type,
-            assembly: assemblyName ?? assemblyId ?? '',
+            assembly: asmName,
             assemblyId: assemblyId ?? '',
             refSeqName: refSeqMap.get(f.refSeq) ?? f.refSeq,
             refSeqId: f.refSeq,
@@ -159,7 +197,11 @@ export function useAnnotations(
             createdAt: creation.createdAt,
             modifiedBy: modified.user,
             modifiedAt: modified.modifiedAt,
+            hasChildren: childCount > 0,
+            attributes: f.attributes ?? {},
           })
+
+          result.push(...buildChildRows(f, fid, creation, modified, asmName))
         }
 
         result.sort(
@@ -176,5 +218,9 @@ export function useAnnotations(
     return () => { cancelled = true }
   }, [baseURL, getFetcher, assemblyId, limit])
 
-  return { rows, loading, error, hasMore, loadAll: () => setLimit(undefined) }
+  function updateRow(id: string, updates: Partial<AnnotationRow>) {
+    setRows((prev) => prev.map((r) => r.id === id ? { ...r, ...updates } : r))
+  }
+
+  return { rows, loading, error, hasMore, loadAll: () => setLimit(undefined), updateRow }
 }

@@ -33,6 +33,8 @@ export interface AssemblyRecord {
 
 export interface AnnotationRow {
   id: string
+  parentId?: string
+  depth: number
   name: string
   type: string
   assembly: string
@@ -46,4 +48,11 @@ export interface AnnotationRow {
   createdAt: string
   modifiedBy: string
   modifiedAt: string
+  hasChildren: boolean
+  // Stored at load time for use in FeatureAttributeChange oldAttributes.
+  // NOTE: Option B (re-fetching attributes fresh on edit) would be safer in
+  // multi-user environments where another curator may have changed attributes
+  // between when this table loaded and when the user commits an edit. Option A
+  // is simpler and acceptable for single-session use.
+  attributes: Record<string, string[]>
 }
