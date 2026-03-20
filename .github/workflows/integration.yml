@@ -13,6 +13,6 @@ jobs:
           node-version: 20.x
           cache: npm
       - name: Install deps
-        run: npm install
+        run: npm install --legacy-peer-deps
       - name: Build
         run: npm run build
