@@ -36,21 +36,41 @@ A JBrowse 2 plugin that adds an **Annotation Browser** drawer widget to [Apollo]
 
 ## Deployment
 
-Build the plugin and deploy using [apollo-tools](https://github.com/simrbase/apollo-tools):
+### 1. Build
 
 ```bash
-cd /data/src/jbrowse-plugin-apollo-annotation-browser
+git clone https://github.com/simrbase/jbrowse-plugin-apollo-annotation-browser
+cd jbrowse-plugin-apollo-annotation-browser
 npm install
 npm run build
-
-# Deploy to all Apollo instances
-apollo-add-plugin /data/src/jbrowse-plugin-apollo-annotation-browser
-
-# Deploy to a single instance
-apollo-add-plugin /data/src/jbrowse-plugin-apollo-annotation-browser -i stern
 ```
 
-The script copies the built JS to each instance's web directory and registers the plugin in `*-config.json`.
+Copy `dist/jbrowse-plugin-apollo-annotation-browser.umd.development.js` to your JBrowse web directory.
+
+### 2. Register in JBrowse config
+
+Add the plugin to your `config.json`:
+
+```json
+{
+  "plugins": [
+    {
+      "name": "ApolloAnnotationBrowser",
+      "umdLoc": {
+        "uri": "jbrowse-plugin-apollo-annotation-browser.umd.development.js"
+      }
+    }
+  ]
+}
+```
+
+Or use the JBrowse CLI:
+
+```bash
+jbrowse add-plugin \
+  --name ApolloAnnotationBrowser \
+  --url jbrowse-plugin-apollo-annotation-browser.umd.development.js
+```
 
 ## Development
 
