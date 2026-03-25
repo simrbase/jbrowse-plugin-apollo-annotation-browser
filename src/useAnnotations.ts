@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import type { AnnotationRow, AssemblyRecord, ChangeRecord, FeatureRecord, RefSeqRecord } from './types'
 
@@ -24,6 +24,7 @@ const EDIT_TYPES = new Set([
 ])
 
 const DELETE_TYPE = 'DeleteFeatureChange'
+const POLL_INTERVAL_MS = 10_000
 
 export interface UseAnnotationsResult {
   rows: AnnotationRow[]
@@ -46,15 +47,26 @@ export function useAnnotations(
   const [error, setError] = useState<string | null>(null)
   const [limit, setLimit] = useState<number | undefined>(defaultLimit)
   const [hasMore, setHasMore] = useState(false)
-  const [refreshTick, setRefreshTick] = useState(0)
+  const [loadVersion, setLoadVersion] = useState(0)
 
+  // Track the most-recent change ID after each full load.
+  // A ref avoids stale-closure issues inside the polling interval.
+  const lastChangeIdRef = useRef<string | null>(null)
+
+  // Always keep a current reference to getFetcher so the polling interval
+  // can use it without being in the interval's dependency array (which would
+  // restart the timer on every MobX reaction that touches apolloInternetAccount).
+  const getFetcherRef = useRef(getFetcher)
+  useEffect(() => { getFetcherRef.current = getFetcher }, [getFetcher])
+
+  // ── Full data load ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!assemblyId) return
     let cancelled = false
 
     async function apiFetch(path: string, opts?: RequestInit) {
       const url = new URL(path, baseURL).toString()
-      const fetcher = getFetcher({ locationType: 'UriLocation', uri: url })
+      const fetcher = getFetcherRef.current({ locationType: 'UriLocation', uri: url })
       const res = await fetcher(url, opts)
       if (!res.ok) throw new Error(`Apollo API error ${res.status}: ${path}`)
       return res.json()
@@ -69,6 +81,9 @@ export function useAnnotations(
         const allChanges: ChangeRecord[] = await apiFetch(
           `changes?assembly=${assemblyId}&sort=desc${limitParam}`,
         )
+
+        // Remember the latest change ID for the poll watcher
+        lastChangeIdRef.current = allChanges[0]?._id ?? null
 
         if (limit && allChanges.length >= limit) {
           setHasMore(true)
@@ -124,7 +139,7 @@ export function useAnnotations(
         for (let i = 0; i < annotationIds.length; i += BATCH) {
           const batch = annotationIds.slice(i, i + BATCH)
           const url = new URL('features/getByIds', baseURL).toString()
-          const fetcher = getFetcher({ locationType: 'UriLocation', uri: url })
+          const fetcher = getFetcherRef.current({ locationType: 'UriLocation', uri: url })
           const res = await fetcher(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -218,11 +233,53 @@ export function useAnnotations(
 
     void load()
     return () => { cancelled = true }
-  }, [baseURL, getFetcher, assemblyId, limit, refreshTick])
+  // getFetcher intentionally omitted — we use getFetcherRef to avoid
+  // infinite loops caused by MobX recreating the function reference.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseURL, assemblyId, limit, loadVersion])
+
+  // ── Lightweight change-detection poll ────────────────────────────────────
+  // Every POLL_INTERVAL_MS, fetch only the 1 most-recent change.
+  // If its ID differs from what was seen after the last full load, trigger one.
+  useEffect(() => {
+    if (!assemblyId) return
+
+    const timer = setInterval(async () => {
+      try {
+        const url = new URL(`changes?assembly=${assemblyId}&sort=desc&limit=1`, baseURL).toString()
+        const fetcher = getFetcherRef.current({ locationType: 'UriLocation', uri: url })
+        const res = await fetcher(url)
+        if (!res.ok) return
+        const changes = await res.json() as ChangeRecord[]
+        const latestId = changes[0]?._id
+        if (!latestId) return
+
+        if (lastChangeIdRef.current === null) {
+          // Not yet set by a full load — initialise without triggering reload
+          lastChangeIdRef.current = latestId
+        } else if (latestId !== lastChangeIdRef.current) {
+          // New change detected — trigger a full reload
+          setLoadVersion((v) => v + 1)
+        }
+      } catch {
+        // Silently ignore transient poll errors
+      }
+    }, POLL_INTERVAL_MS)
+
+    return () => { clearInterval(timer) }
+  }, [baseURL, assemblyId])
 
   function updateRow(id: string, updates: Partial<AnnotationRow>) {
     setRows((prev) => prev.map((r) => r.id === id ? { ...r, ...updates } : r))
   }
 
-  return { rows, loading, error, hasMore, loadAll: () => setLimit(undefined), updateRow, refresh: () => setRefreshTick((t) => t + 1) }
+  return {
+    rows,
+    loading,
+    error,
+    hasMore,
+    loadAll: () => setLimit(undefined),
+    updateRow,
+    refresh: () => setLoadVersion((v) => v + 1),
+  }
 }

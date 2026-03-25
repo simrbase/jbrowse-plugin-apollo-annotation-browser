@@ -85,18 +85,6 @@ export const AnnotationBrowserWidget = observer(function AnnotationBrowserWidget
   )
 
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
-  const [autoRefresh, setAutoRefresh] = useState(false)
-  const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  useEffect(() => {
-    if (autoRefresh) {
-      autoRefreshRef.current = setInterval(() => { refresh() }, 30_000)
-    } else {
-      if (autoRefreshRef.current) clearInterval(autoRefreshRef.current)
-    }
-    return () => { if (autoRefreshRef.current) clearInterval(autoRefreshRef.current) }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoRefresh])
 
   function toggleExpand(id: string) {
     setExpandedIds((prev) => {
@@ -239,15 +227,6 @@ export const AnnotationBrowserWidget = observer(function AnnotationBrowserWidget
         <Typography variant="subtitle2" color="text.secondary" style={{ flex: 1 }}>
           Assembly: {assemblyName}
         </Typography>
-        <Tooltip title={autoRefresh ? 'Auto-refresh on (every 30s) — click to disable' : 'Enable auto-refresh (every 30s)'}>
-          <IconButton
-            size="small"
-            onClick={() => setAutoRefresh((v) => !v)}
-            color={autoRefresh ? 'primary' : 'default'}
-          >
-            <RefreshIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
         <Tooltip title="Refresh now">
           <span>
             <IconButton size="small" onClick={() => refresh()} disabled={loading}>
