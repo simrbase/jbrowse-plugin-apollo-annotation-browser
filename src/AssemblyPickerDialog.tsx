@@ -11,6 +11,7 @@ import Typography from '@mui/material/Typography'
 import React, { useEffect, useState } from 'react'
 
 import type { AssemblyRecord } from './types'
+import { Dialog } from '@jbrowse/core/ui'
 
 type Fetcher = (url: string, opts?: RequestInit) => Promise<Response>
 type GetFetcher = (loc: { locationType: string; uri: string }) => Fetcher
@@ -47,7 +48,7 @@ export function AssemblyPickerDialog({ baseURL, getFetcher, handleClose, onSelec
   }
 
   return (
-    <>
+    <Dialog open={true} title="Choose assembly">
       <DialogTitle>Browse Annotations</DialogTitle>
       <DialogContent sx={{ minWidth: 320, pt: 1 }}>
         <Typography variant="body2" sx={{ mb: 2 }}>
@@ -79,6 +80,6 @@ export function AssemblyPickerDialog({ baseURL, getFetcher, handleClose, onSelec
           Browse
         </Button>
       </DialogActions>
-    </>
+    </Dialog>
   )
 }
