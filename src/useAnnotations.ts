@@ -32,6 +32,7 @@ export interface UseAnnotationsResult {
   hasMore: boolean
   loadAll: () => void
   updateRow: (id: string, updates: Partial<AnnotationRow>) => void
+  refresh: () => void
 }
 
 export function useAnnotations(
@@ -45,6 +46,7 @@ export function useAnnotations(
   const [error, setError] = useState<string | null>(null)
   const [limit, setLimit] = useState<number | undefined>(defaultLimit)
   const [hasMore, setHasMore] = useState(false)
+  const [refreshTick, setRefreshTick] = useState(0)
 
   useEffect(() => {
     if (!assemblyId) return
@@ -216,11 +218,11 @@ export function useAnnotations(
 
     void load()
     return () => { cancelled = true }
-  }, [baseURL, getFetcher, assemblyId, limit])
+  }, [baseURL, getFetcher, assemblyId, limit, refreshTick])
 
   function updateRow(id: string, updates: Partial<AnnotationRow>) {
     setRows((prev) => prev.map((r) => r.id === id ? { ...r, ...updates } : r))
   }
 
-  return { rows, loading, error, hasMore, loadAll: () => setLimit(undefined), updateRow }
+  return { rows, loading, error, hasMore, loadAll: () => setLimit(undefined), updateRow, refresh: () => setRefreshTick((t) => t + 1) }
 }

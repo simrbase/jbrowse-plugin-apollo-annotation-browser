@@ -3,9 +3,11 @@ import { observer } from 'mobx-react'
 import Button from '@mui/material/Button'
 import CircularProgress from '@mui/material/CircularProgress'
 import IconButton from '@mui/material/IconButton'
+import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import RefreshIcon from '@mui/icons-material/Refresh'
 import {
   DataGrid,
   type GridColDef,
@@ -14,7 +16,7 @@ import {
   useGridApiContext,
   GridToolbar,
 } from '@mui/x-data-grid'
-import React, { useCallback, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useAnnotations } from './useAnnotations'
 import type { AnnotationRow } from './types'
@@ -76,13 +78,25 @@ export const AnnotationBrowserWidget = observer(function AnnotationBrowserWidget
     [apolloInternetAccount],
   )
 
-  const { rows: allRows, loading, error, hasMore, loadAll, updateRow } = useAnnotations(
+  const { rows: allRows, loading, error, hasMore, loadAll, updateRow, refresh } = useAnnotations(
     baseURL,
     getFetcher,
     assembly,
   )
 
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+  const [autoRefresh, setAutoRefresh] = useState(false)
+  const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => {
+    if (autoRefresh) {
+      autoRefreshRef.current = setInterval(() => { refresh() }, 30_000)
+    } else {
+      if (autoRefreshRef.current) clearInterval(autoRefreshRef.current)
+    }
+    return () => { if (autoRefreshRef.current) clearInterval(autoRefreshRef.current) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRefresh])
 
   function toggleExpand(id: string) {
     setExpandedIds((prev) => {
@@ -221,16 +235,27 @@ export const AnnotationBrowserWidget = observer(function AnnotationBrowserWidget
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', maxHeight: 520, padding: 8, gap: 8 }}>
-      <Typography variant="subtitle2" color="text.secondary">
-        Assembly: {assemblyName}
-      </Typography>
-
-      {loading && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <CircularProgress size={18} />
-          <Typography variant="body2">Loading annotations…</Typography>
-        </div>
-      )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <Typography variant="subtitle2" color="text.secondary" style={{ flex: 1 }}>
+          Assembly: {assemblyName}
+        </Typography>
+        <Tooltip title={autoRefresh ? 'Auto-refresh on (every 30s) — click to disable' : 'Enable auto-refresh (every 30s)'}>
+          <IconButton
+            size="small"
+            onClick={() => setAutoRefresh((v) => !v)}
+            color={autoRefresh ? 'primary' : 'default'}
+          >
+            <RefreshIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title="Refresh now">
+          <span>
+            <IconButton size="small" onClick={() => refresh()} disabled={loading}>
+              {loading ? <CircularProgress size={16} /> : <RefreshIcon fontSize="small" />}
+            </IconButton>
+          </span>
+        </Tooltip>
+      </div>
 
       {error && (
         <Typography color="error" variant="body2">{error}</Typography>
